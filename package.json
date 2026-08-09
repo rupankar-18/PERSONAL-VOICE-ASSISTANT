@@ -1,0 +1,38 @@
+{
+  "name": "jarvis-3d-assistant",
+  "version": "1.0.0",
+  "description": "3D Gesture-Controlled Iron Man Jarvis AI Assistant Desktop Application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": [
+    "jarvis",
+    "ai-assistant",
+    "threejs",
+    "mediapipe",
+    "electron",
+    "gestures"
+  ],
+  "author": "Rupankar Podder",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.0"
+  },
+  "build": {
+    "appId": "com.rupankar.jarvis3d",
+    "productName": "Jarvis 3D AI Assistant",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    }
+  }
+}

@@ -5,4 +5,5 @@ __pycache__/
 control_log.txt
 *.log
 scratch/
-platform-tools/
+node_modules/
+dist/

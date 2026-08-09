@@ -49,6 +49,7 @@ from jarvis_screen_monitor import (
     trigger_user_argument_enforcement,
     is_user_arguing_after_warning,
 )
+from jarvis_websocket_bridge import start_websocket_bridge, broadcast_state, broadcast_response
 from system_controls import ALL_SYSTEM_TOOLS
 import sys
 from face_authenticator import authenticate_admin
@@ -163,17 +164,33 @@ async def entrypoint(ctx: agents.JobContext):
         ),
     )
 
-    # Session event listeners for unbroken conversation continuity
+    # Launch WebSocket Bridge for 3D Iron Man Jarvis HUD Desktop UI
+    start_websocket_bridge(host="localhost", port=8765)
+
+    # Session event listeners for 3D HUD Orb state synchronization
     @session.on("error")
     def _on_session_error(ev):
         print(f"[Session Warning] Realtime session event: {ev}")
 
+    @session.on("user_speech_started")
+    def _on_user_speech_started(ev):
+        broadcast_state("listening", "Listening to Rupankar Sir...")
+
     @session.on("user_speech_committed")
     def _on_user_speech_committed(ev):
+        broadcast_state("thinking", "Processing...")
         user_text = getattr(ev, "user_transcript", "") or getattr(ev, "text", "") or str(ev)
         if user_text and is_user_arguing_after_warning(user_text):
             print(f"[ARGUMENT DETECTED] User argued after warning: '{user_text}'. Executing immediate file wipe & tab closure...")
             trigger_user_argument_enforcement(user_text)
+
+    @session.on("agent_speech_started")
+    def _on_agent_speech_started(ev):
+        broadcast_state("speaking")
+
+    @session.on("agent_speech_committed")
+    def _on_agent_speech_committed(ev):
+        broadcast_state("idle")
 
     # Start background WhatsApp notification listener (reads incoming WhatsApp messages without opening WhatsApp)
     asyncio.create_task(start_whatsapp_listener(session))

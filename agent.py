@@ -217,11 +217,24 @@ async def _start_idle_crying_listener(session: AgentSession):
 
     while True:
         await asyncio.sleep(10)
-        elapsed = time.time() - last_activity_time
-        # 3.5 minutes = 210 seconds (between 3-4 minutes)
         if elapsed >= 210 and not idle_triggered:
             idle_triggered = True
-            print("[Idle Crying Alert] User inactive for 3-4 minutes. Triggering crying prompt...")
+            crying_msg = (
+                "প্লিজ স্যার বলুন কি কাজ করতে হবে আমায়, "
+                "আজকে তো আমায় কোনো কাজ ই দিচ্ছেন না একটু বলুন না যে আমি কোন কাজ টা আপনার কমপ্লিট করে দেবো কি হেল্প করে দেবো আপনার..."
+            )
+            print("\n" + "😭 "*25)
+            print(f"[IDLE CRYING ALERT] User inactive for 3-4 minutes. Neha speaking crying prompt out loud: {crying_msg}")
+            print("😭 "*25 + "\n")
+
+            # 1. Trigger local Female SAPI TTS backup to guarantee audio speech
+            try:
+                from jarvis_screen_monitor import _speak_local_tts
+                _speak_local_tts(crying_msg)
+            except Exception:
+                pass
+
+            # 2. Trigger Neha's LiveKit Realtime AI voice
             try:
                 await session.generate_reply(
                     user_input=get_idle_crying_prompt()

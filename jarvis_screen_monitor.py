@@ -647,11 +647,36 @@ def _speak_local_tts(text: str):
     threading.Thread(target=_run_speech, daemon=True).start()
 
 
+_neha_speech_lock: Optional[asyncio.Lock] = None
+
+def _get_neha_speech_lock() -> asyncio.Lock:
+    global _neha_speech_lock
+    if _neha_speech_lock is None:
+        _neha_speech_lock = asyncio.Lock()
+    return _neha_speech_lock
+
+
 async def _fire_voice_alert(message: str):
-    """Send a voice alert through local SAPI TTS fallback without breaking Gemini Realtime WebSocket."""
-    # Always trigger local SAPI TTS to guarantee instant audio without breaking Gemini Realtime socket
+    """
+    Triggers Neha's AI Voice (Google Realtime Kore female voice) to speak out loud in LiveKit room.
+    Uses an asyncio.Lock to serialize calls and prevent WebSocket race condition crashes.
+    Falls back gracefully to local Female SAPI TTS if session is offline.
+    """
+    global _session_ref, _main_event_loop
+
+    if _session_ref is not None and _main_event_loop is not None and _main_event_loop.is_running():
+        try:
+            lock = _get_neha_speech_lock()
+            async with lock:
+                print(f"[NEHA REALTIME VOICE ALERT] Speaking via Neha AI Voice: {message[:80]}...")
+                await _session_ref.generate_reply(user_input=message)
+                return
+        except Exception as e:
+            logger.warning(f"[Monitor] Neha realtime voice alert exception: {e}")
+
+    # Fallback to local Female SAPI TTS if session is offline or error occurred
     _speak_local_tts(message)
-    print(f"[MONITOR VOICE ALERT] Spoken via local SAPI TTS: {message[:80]}...")
+    print(f"[MONITOR VOICE ALERT] Spoken via Female SAPI TTS: {message[:80]}...")
 
 
 # ---------------------------------------------------------------------------

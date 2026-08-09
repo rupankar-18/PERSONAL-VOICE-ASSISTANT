@@ -54,15 +54,34 @@ class GestureController {
     }
   }
 
-  async startDirectWebcam() {
+  async startDirectWebcam(attempt = 1) {
+    console.log(`🎥 [Gestures] Initializing WebCam tracking (Attempt ${attempt}/8)...`);
+    const gestureEl = document.getElementById('gesture-name');
+    if (gestureEl && this.activeGesture === 'None') {
+      gestureEl.textContent = `Camera Init (${attempt})...`;
+    }
+
+    if (attempt === 1) {
+      await new Promise(r => setTimeout(r, 400));
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }
-      });
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }
+        });
+      } catch (e1) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
       this.videoElement.srcObject = stream;
       await this.videoElement.play();
 
-      console.log('🎥 [Gestures] Native HTML5 Webcam started successfully!');
+      console.log('✅ [Gestures] WebCam stream connected & tracking active!');
+      if (gestureEl && (gestureEl.textContent.includes('Camera Init') || gestureEl.textContent === 'None')) {
+        gestureEl.textContent = 'Tracking Active';
+      }
 
       let isProcessing = false;
       const processFrame = async () => {
@@ -80,14 +99,12 @@ class GestureController {
       requestAnimationFrame(processFrame);
 
     } catch (err) {
-      console.error('❌ [Gestures] getUserMedia webcam access error:', err);
-      // Fallback using CameraUtils if available
-      if (typeof Camera !== 'undefined') {
-        this.camera = new Camera(this.videoElement, {
-          onFrame: async () => { await this.hands.send({ image: this.videoElement }); },
-          width: 640, height: 480
-        });
-        this.camera.start();
+      console.warn(`⚠️ [Gestures] WebCam access busy on attempt ${attempt}: ${err.message}. Retrying in 600ms...`);
+      if (attempt < 8) {
+        setTimeout(() => this.startDirectWebcam(attempt + 1), 600);
+      } else {
+        console.error('❌ [Gestures] Failed to acquire WebCam after 8 attempts.');
+        if (gestureEl) gestureEl.textContent = 'Camera Busy / Failed';
       }
     }
   }

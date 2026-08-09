@@ -374,6 +374,7 @@ def authenticate_admin(timeout_sec=15, confidence_threshold=90.0) -> bool:
 
     cap.release()
     cv2.destroyAllWindows()
+    time.sleep(0.5) # Give Windows camera driver time to release hardware handle
 
     if matched:
         print("[SUCCESS] Admin identity confirmed! Access granted.")

@@ -124,6 +124,7 @@ _monitor_thread: Optional[threading.Thread] = None
 _last_clipboard_content = ""
 _last_violation_time: float = 0.0
 _violation_warned = False          # True = first warning issued; next = hard enforce
+_warned_clipboard_hash = None      # Hash of clipboard content for which Stage 1 warning was issued
 _screen_context_buffer = ""        # Latest description of what user is doing
 _session_ref = None                # LiveKit AgentSession reference for voice alerts
 
@@ -659,7 +660,7 @@ def _monitoring_loop():
       4. Takes hard enforcement (delete files/code, close tabs) & voice alerts (angry vs naughty vs cute)
     """
     global _monitor_active, _last_clipboard_content, _last_violation_time
-    global _violation_warned, _screen_context_buffer, _last_whatsapp_alert_time, _last_creepy_alert_time
+    global _violation_warned, _warned_clipboard_hash, _screen_context_buffer, _last_whatsapp_alert_time, _last_creepy_alert_time
 
     logger.info("[Monitor] Screen monitor started.")
     last_screenshot_time = 0.0
@@ -681,34 +682,38 @@ def _monitoring_loop():
                 is_ai_code = _is_suspicious_clipboard(clipboard_content) or (cheating_domain is not None)
 
                 if is_ai_code:
-                    pending_ai_code = True
-                    ai_source_site = cheating_domain or "AI Chatbot"
-                    logger.info(f"[Monitor] Flagged AI code in clipboard from {ai_source_site}.")
+                    curr_hash = hash(clipboard_content)
+                    if curr_hash != _warned_clipboard_hash:
+                        pending_ai_code = True
+                        ai_source_site = cheating_domain or "AI Chatbot"
+                        logger.info(f"[Monitor] Flagged NEW AI code in clipboard from {ai_source_site}.")
 
             # Check if user is currently focused on VS Code, Antigravity IDE, or an Online Compiler
             active_target = _get_active_target_editor()
 
             # If user has AI code in clipboard AND is in VS Code, Antigravity, or an Online Compiler
             if pending_ai_code and active_target:
-                # Re-verify clipboard still has content
                 curr_clip = _get_clipboard()
+                curr_hash = hash(curr_clip) if curr_clip else None
+
                 if curr_clip and (len(curr_clip.strip()) > 10):
                     time_since_last = current_time - _last_violation_time
                     target_name = active_target
                     site_mention = f" from {ai_source_site}" if ai_source_site else " from AI"
 
+                    # Stage 1: Issue Warning FIRST if not yet warned for this copy
                     if not _violation_warned or time_since_last >= VIOLATION_MEMORY_SEC:
-                        # ---- STAGE 1: FIRST WARNING (First offense) ----
                         _violation_warned = True
                         _last_violation_time = current_time
-                        pending_ai_code = False  # Consumed for first warning
+                        _warned_clipboard_hash = curr_hash  # Mark current clipboard as warned
+                        pending_ai_code = False  # Clear pending flag for this copy
 
                         warning_msg = (
                             f"রূপঙ্কর স্যার! আপনি {site_mention} থেকে কোড কপি করে {target_name}-এ পেস্ট করতে গেছেন! "
                             f"এটি চিটিং! প্লিজ স্যার চিটিং করবেন না, নিজে চেষ্টা করুন কোড বানিয়ে স্কিল ইমপ্রুভ করতে!"
                         )
                         print("\n" + "⚠️ "*25)
-                        print(f"⚠️ [INTEGRITY WARNING 1] AI Code copy detected for target: {target_name}")
+                        print(f"⚠️ [INTEGRITY WARNING 1 GIVEN] AI Code copy detected for target: {target_name}")
                         print("⚠️ WARNING GIVEN TO USER: Please write code yourself!")
                         print("⚠️ "*25 + "\n")
 
@@ -717,11 +722,12 @@ def _monitoring_loop():
                             _fire_voice_alert(warning_msg), _get_main_event_loop()
                         )
 
-                    else:
-                        # ---- STAGE 2: HARD ENFORCEMENT (User ignored warning / repeated attempt) ----
-                        _violation_warned = False  # Reset for next cycle
+                    # Stage 2: Hard Enforcement - ONLY if user copies NEW AI code AGAIN (different hash) after receiving warning
+                    elif _violation_warned and (curr_hash != _warned_clipboard_hash):
+                        _violation_warned = False  # Reset warning state
                         _last_violation_time = current_time
-                        pending_ai_code = False  # Consumed enforcement
+                        _warned_clipboard_hash = None
+                        pending_ai_code = False
 
                         logger.error(f"[Monitor] CHEATING HARD ENFORCEMENT TRIGGERED FOR {target_name}!")
 
@@ -739,8 +745,8 @@ def _monitoring_loop():
                         # 4. Speak out loud & log required message: "nije koro skill improve koro"
                         strict_msg = (
                             "nije koro skill improve koro! "
-                            "রূপঙ্কর স্যার, AI থেকে কপি করা কোড ও ফাইল মুছে দেওয়া হয়েছে এবং ব্রাউজার ট্যাব বন্ধ করা হয়েছে! "
-                            "নিজে কোড বানিয়ে স্কিল ইমপ্রুভ করুন!"
+                            "রূপঙ্কর স্যার, ওয়ার্নিং দেওয়ার পরও আবার AI কোড পেস্ট করার জন্য আপনার কোড ও ফাইল মুছে দেওয়া হয়েছে এবং ব্রাউজার ট্যাব বন্ধ করা হয়েছে! "
+                            "নিজে কোড বানিয়ে স্কিল ইমপ্রুভ করুন স্যার!"
                         )
                         print("\n" + "🚨 "*25)
                         print(f"🚨 [ANTI-CHEATING ENFORCED] DELETED CODE & FILE IN {target_name}!")

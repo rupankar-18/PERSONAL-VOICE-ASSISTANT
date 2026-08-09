@@ -1193,11 +1193,99 @@ async def get_screen_context_tool() -> str:
     return f"📺 Current screen activity: {local_summary}"
 
 
+@function_tool
+async def explain_code_and_help_understand_tool(
+    file_path: str = "",
+    code_text: str = "",
+    language: str = ""
+) -> str:
+    """
+    Use this tool whenever the user says 'i dont understand it please help me to understand',
+    'please help me to understand the code', 'এই কোডটা বুঝতে পারছি না', or asks for help
+    understanding any code in any programming language (C, C++, Python, Java, JavaScript, HTML, CSS, React, etc.).
+    Reads code from file_path, code_text parameter, clipboard, or currently open editor file.
+    Returns code contents formatted for clear step-by-step educational breakdown.
+    """
+    target_code = code_text.strip() if code_text else ""
+    target_file = file_path.strip() if file_path else ""
+
+    # 1. If file_path provided, read file content from disk
+    if target_file:
+        try:
+            cwd = os.getcwd()
+            possible_path = target_file if os.path.isabs(target_file) else os.path.join(cwd, target_file)
+            if not os.path.exists(possible_path):
+                # Search workspace for file name match
+                for root, _, files in os.walk(cwd):
+                    if target_file.lower() in [f.lower() for f in files]:
+                        possible_path = os.path.join(root, target_file)
+                        break
+            if os.path.exists(possible_path):
+                with open(possible_path, "r", encoding="utf-8", errors="ignore") as f:
+                    target_code = f.read()
+                target_file = os.path.basename(possible_path)
+        except Exception as e:
+            logger.warning(f"[CodeExplainer] File read error for '{target_file}': {e}")
+
+    # 2. If no target_code, check active window title or clipboard
+    if not target_code:
+        clip = _get_clipboard()
+        if clip and len(clip.strip()) > 10:
+            target_code = clip
+        else:
+            # Check active editor window for file name
+            title = _get_foreground_window_title()
+            match = re.search(r'([a-zA-Z0-9_\-\.]+\.(py|c|cpp|java|js|ts|html|css|json|txt|md|sql|sh|php|cs|go|rs))', title, re.IGNORECASE)
+            if match:
+                fn = match.group(1)
+                fp = os.path.join(os.getcwd(), fn)
+                if os.path.exists(fp):
+                    with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                        target_code = f.read()
+                    target_file = fn
+
+    if not target_code:
+        return (
+            "রূপঙ্কর স্যার, কোডের লেখা বা ফাইলের নাম পাওয়া যায়নি। "
+            "অনুগ্রহ করে ফাইলটির নাম বলুন অথবা কোডটি সিলেক্ট/কপি করে বলুন স্যার!"
+        )
+
+    # Detect language if not passed
+    if not language:
+        if target_file:
+            ext = os.path.splitext(target_file)[1].lower()
+            ext_map = {
+                ".c": "C Language", ".cpp": "C++", ".py": "Python",
+                ".java": "Java", ".js": "JavaScript", ".ts": "TypeScript / React",
+                ".jsx": "React JSX", ".tsx": "React TSX", ".html": "HTML",
+                ".css": "CSS", ".sql": "SQL", ".go": "Go", ".rs": "Rust"
+            }
+            language = ext_map.get(ext, "Programming Code")
+        else:
+            language = "Programming Code"
+
+    lines = target_code.splitlines()
+    line_count = len(lines)
+    snippet_preview = "\n".join(lines[:40])
+
+    return (
+        f"📝 CODE FOR FULL STEP-BY-STEP EXPLANATION:\n"
+        f"• File/Source: {target_file or 'Selected/Clipboard Snippet'}\n"
+        f"• Language: {language}\n"
+        f"• Total Lines: {line_count}\n\n"
+        f"CODE SNIPPET:\n```\n{snippet_preview}\n```\n\n"
+        f"INSTRUCTION FOR NEHA: Please fully analyze this code line-by-line / block-by-block. "
+        f"Explain in your sweet, friendly voice step-by-step in Bengali/English with real-world analogies "
+        f"so Rupankar Sir understands every single line and logic 100%!"
+    )
+
+
 # Export all tools
 SCREEN_MONITOR_TOOLS = [
     start_screen_monitoring_tool,
     stop_screen_monitoring_tool,
     get_screen_context_tool,
+    explain_code_and_help_understand_tool,
 ]
 
 

@@ -45,6 +45,7 @@ from jarvis_screen_monitor import (
     start_screen_monitoring_tool,
     stop_screen_monitoring_tool,
     get_screen_context_tool,
+    explain_code_and_help_understand_tool,
     trigger_user_argument_enforcement,
     is_user_arguing_after_warning,
 )
@@ -119,6 +120,7 @@ class Assistant(Agent):
                 start_screen_monitoring_tool,  # Start real-time screen monitor & integrity enforcer
                 stop_screen_monitoring_tool,   # Stop screen monitoring
                 get_screen_context_tool,       # Get live description of what is on screen for proactive assistance
+                explain_code_and_help_understand_tool, # Fully analyze and explain code in any language step-by-step
             ],
         )
 

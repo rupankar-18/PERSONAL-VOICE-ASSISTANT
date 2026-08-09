@@ -200,14 +200,29 @@ def authenticate_admin(timeout_sec=15, confidence_threshold=90.0) -> bool:
     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
     print("[INFO] Accessing camera for security face scan...")
-    # Use DirectShow backend on Windows to avoid MSMF camera errors (-1072875772)
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+    cap = None
+    # Try indices 0, 1 with DSHOW, MSMF, and default backends with retries and frame read verification
+    for attempt in range(5):
+        for index in [0, 1]:
+            for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
+                try:
+                    temp_cap = cv2.VideoCapture(index, backend)
+                    if temp_cap.isOpened():
+                        ret_test, frame_test = temp_cap.read()
+                        if ret_test and frame_test is not None and frame_test.size > 0:
+                            cap = temp_cap
+                            break
+                        else:
+                            temp_cap.release()
+                except Exception:
+                    pass
+            if cap and cap.isOpened():
+                break
+        if cap and cap.isOpened():
+            break
+        time.sleep(0.4)
 
-    if not cap.isOpened():
+    if not cap or not cap.isOpened():
         print("[ERROR] Camera access failed. Unable to verify user identity.")
         return False
 

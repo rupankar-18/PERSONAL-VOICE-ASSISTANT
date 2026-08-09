@@ -208,7 +208,17 @@ async def entrypoint(ctx: agents.JobContext):
             user_input=get_reply_prompts()
         )
     except Exception as reply_err:
-        print(f"[Session Warning] Startup generate_reply exception: {reply_err}")
+        print(f"[Session Warning] Startup generate_reply exception (Error 1011 fallback): {reply_err}")
+        try:
+            from jarvis_screen_monitor import _speak_local_tts
+            welcome_msg = (
+                "Good evening Rupankar Sir! Ami Neha. Aapnar mishti o buddhimoti AI Voice Assistant, "
+                "jaake Rupankar sir design o toiri korechen. Ami aapnar nirdesh maante sampurnobhabe prostuto sir. "
+                "Bolun Rupankar Sir, aaj ami aapnake kibhabe sahajyo korbo?"
+            )
+            _speak_local_tts(welcome_msg)
+        except Exception:
+            pass
 
 
 async def _start_idle_crying_listener(session: AgentSession):

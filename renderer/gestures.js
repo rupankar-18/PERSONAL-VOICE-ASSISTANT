@@ -1,13 +1,13 @@
 /**
  * MediaPipe Hands Ultra-Smooth Real-Time Gesture Recognition & Filter Layer
- * Velocity-Adaptive Low Pass Landmark Filtering + Precise Debounced Gesture Mapping
+ * Native HTML5 getUserMedia Loop + Orientation-Invariant Distance Ratios + UI Chip Sync
  */
 
 class GestureController {
   constructor() {
     this.videoElement = document.getElementById('webcam-video');
     this.canvasElement = document.getElementById('landmark-canvas');
-    this.canvasCtx = this.canvasElement.getContext('2d');
+    this.canvasCtx = this.canvasElement ? this.canvasElement.getContext('2d') : null;
 
     // Smoothed landmarks & historical velocity tracking
     this.smoothedLandmarks = [];
@@ -17,7 +17,7 @@ class GestureController {
     this.activeGesture = 'None';
     this.pendingGesture = 'None';
     this.pendingFrames = 0;
-    this.REQUIRED_STABLE_FRAMES = 3; // 3 frames (~100ms) to confirm gesture switch
+    this.REQUIRED_STABLE_FRAMES = 2; // 2-3 frames (~60ms) fast stable switch
 
     // Swipe tracking buffer
     this.wristXBuffer = [];
@@ -31,41 +31,72 @@ class GestureController {
   initMediaPipe() {
     if (typeof Hands === 'undefined') {
       console.warn('[Gestures] MediaPipe Hands CDN loading...');
-      setTimeout(() => this.initMediaPipe(), 800);
+      setTimeout(() => this.initMediaPipe(), 500);
       return;
     }
 
-    this.hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
+    try {
+      this.hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
 
-    this.hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.65,
-      minTrackingConfidence: 0.65
-    });
+      this.hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6
+      });
 
-    this.hands.onResults((results) => this.onResults(results));
+      this.hands.onResults((results) => this.onResults(results));
+      this.startDirectWebcam();
+    } catch (err) {
+      console.error('❌ [Gestures] MediaPipe initialization error:', err);
+    }
+  }
 
-    this.camera = new Camera(this.videoElement, {
-      onFrame: async () => {
-        await this.hands.send({ image: this.videoElement });
-      },
-      width: 640,
-      height: 480
-    });
+  async startDirectWebcam() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }
+      });
+      this.videoElement.srcObject = stream;
+      await this.videoElement.play();
 
-    this.camera.start().then(() => {
-      console.log('🎥 [Gestures] Webcam hand tracking started successfully.');
-    }).catch(err => {
-      console.error('❌ [Gestures] Webcam access error:', err);
-    });
+      console.log('🎥 [Gestures] Native HTML5 Webcam started successfully!');
+
+      let isProcessing = false;
+      const processFrame = async () => {
+        if (this.hands && this.videoElement.readyState >= 2 && !isProcessing) {
+          isProcessing = true;
+          try {
+            await this.hands.send({ image: this.videoElement });
+          } catch (e) {
+            console.error('[Gestures] Frame send error:', e);
+          }
+          isProcessing = false;
+        }
+        requestAnimationFrame(processFrame);
+      };
+      requestAnimationFrame(processFrame);
+
+    } catch (err) {
+      console.error('❌ [Gestures] getUserMedia webcam access error:', err);
+      // Fallback using CameraUtils if available
+      if (typeof Camera !== 'undefined') {
+        this.camera = new Camera(this.videoElement, {
+          onFrame: async () => { await this.hands.send({ image: this.videoElement }); },
+          width: 640, height: 480
+        });
+        this.camera.start();
+      }
+    }
   }
 
   onResults(results) {
-    this.canvasCtx.save();
-    this.canvasCtx.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+    if (this.canvasCtx) {
+      this.canvasCtx.save();
+      this.canvasCtx.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+    }
 
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
       this.activeGesture = 'None';
@@ -79,14 +110,14 @@ class GestureController {
       }
 
       this.updateUI();
-      this.canvasCtx.restore();
+      if (this.canvasCtx) this.canvasCtx.restore();
       return;
     }
 
     const rawHands = results.multiHandLandmarks;
     this.adaptiveSmoothLandmarks(rawHands);
 
-    if (this.showOverlay) {
+    if (this.showOverlay && this.canvasCtx) {
       for (const landmarks of this.smoothedLandmarks) {
         this.drawHandOverlay(landmarks);
       }
@@ -94,13 +125,11 @@ class GestureController {
 
     this.processGestures(this.smoothedLandmarks);
 
-    this.canvasCtx.restore();
+    if (this.canvasCtx) this.canvasCtx.restore();
   }
 
   /**
-   * Adaptive Velocity Low-Pass Filter (One Euro Filter approach)
-   * High velocity -> lower smoothing (fast response)
-   * Low velocity -> higher smoothing (zero jitter)
+   * Adaptive Velocity Low-Pass Filter
    */
   adaptiveSmoothLandmarks(rawHands) {
     if (this.smoothedLandmarks.length !== rawHands.length) {
@@ -115,13 +144,11 @@ class GestureController {
       const prevPoints = this.prevRawLandmarks[h] || rawPoints;
 
       for (let i = 0; i < rawPoints.length; i++) {
-        // Calculate instantaneous velocity
         const dx = rawPoints[i].x - prevPoints[i].x;
         const dy = rawPoints[i].y - prevPoints[i].y;
         const vel = Math.hypot(dx, dy);
 
-        // Dynamic alpha lerp factor: 0.12 (slow/still) to 0.45 (rapid motion)
-        const alpha = Math.min(0.45, Math.max(0.12, vel * 6.0));
+        const alpha = Math.min(0.5, Math.max(0.15, vel * 7.0));
 
         smoothPoints[i].x += (rawPoints[i].x - smoothPoints[i].x) * alpha;
         smoothPoints[i].y += (rawPoints[i].y - smoothPoints[i].y) * alpha;
@@ -135,6 +162,7 @@ class GestureController {
   processGestures(hands) {
     const now = performance.now();
     let detectedRaw = 'None';
+    let chipKey = 'none';
 
     if (hands.length === 2) {
       // TWO HAND GESTURES: Dynamic Scale & Particle Spread
@@ -142,14 +170,15 @@ class GestureController {
       const hand2Wrist = hands[1][0];
 
       const dist = Math.hypot(hand1Wrist.x - hand2Wrist.x, hand1Wrist.y - hand2Wrist.y);
-      const targetScale = Math.min(2.4, Math.max(0.45, dist * 2.9));
-      const targetSpread = Math.min(2.2, Math.max(0.5, dist * 2.6));
+      const targetScale = Math.min(2.5, Math.max(0.4, dist * 3.0));
+      const targetSpread = Math.min(2.3, Math.max(0.5, dist * 2.7));
 
       if (jarvisOrb) {
         jarvisOrb.setGestureInputs(targetScale, undefined, undefined, targetSpread);
       }
 
       detectedRaw = dist > 0.45 ? 'Two Fists (Expand Orb)' : 'Two Fists (Contract Orb)';
+      chipKey = 'two_fists';
 
     } else if (hands.length === 1) {
       const lm = hands[0];
@@ -160,9 +189,8 @@ class GestureController {
 
       // Smooth Wrist Rotation Mapping
       const wrist = lm[0];
-      const middleKnuckle = lm[9];
-      const rotY = (wrist.x - 0.5) * Math.PI * 2.2;
-      const rotX = (wrist.y - 0.5) * Math.PI * 1.5;
+      const rotY = (wrist.x - 0.5) * Math.PI * 2.4;
+      const rotX = (wrist.y - 0.5) * Math.PI * 1.6;
 
       if (jarvisOrb) {
         jarvisOrb.setGestureInputs(undefined, rotX, rotY, undefined);
@@ -174,12 +202,14 @@ class GestureController {
 
       if (now > this.swipeCooldown && this.wristXBuffer.length >= 5) {
         const deltaX = this.wristXBuffer[this.wristXBuffer.length - 1] - this.wristXBuffer[0];
-        if (deltaX < -0.16) {
+        if (deltaX < -0.14) {
           detectedRaw = 'Swipe Right (Next)';
+          chipKey = 'swipe';
           this.sendGestureCommand('next');
           this.swipeCooldown = now + 750;
-        } else if (deltaX > 0.16) {
+        } else if (deltaX > 0.14) {
           detectedRaw = 'Swipe Left (Dismiss)';
+          chipKey = 'swipe';
           this.sendGestureCommand('dismiss');
           this.swipeCooldown = now + 750;
         }
@@ -188,16 +218,20 @@ class GestureController {
       if (detectedRaw === 'None') {
         if (isOpenPalm) {
           detectedRaw = 'Open Palm (Listen)';
+          chipKey = 'open_palm';
         } else if (isFist) {
           detectedRaw = 'Closed Fist (Idle)';
+          chipKey = 'fist';
         } else if (isPinch.active) {
           detectedRaw = `Pinch (Volume ${isPinch.volume}%)`;
           this.sendGestureCommand('volume', { level: isPinch.volume });
+        } else {
+          chipKey = 'rotate';
         }
       }
     }
 
-    // Apply 3-frame stability debouncing for clean discrete triggers
+    // Apply stability debouncing for clean discrete triggers
     if (detectedRaw === this.pendingGesture) {
       this.pendingFrames++;
       if (this.pendingFrames >= this.REQUIRED_STABLE_FRAMES) {
@@ -211,10 +245,12 @@ class GestureController {
       this.pendingFrames = 1;
     }
 
+    this.activeChipKey = chipKey;
     this.updateUI();
   }
 
   onGestureConfirmed(gestureName) {
+    console.log(`🖐️ [Gesture Confirmed] ${gestureName}`);
     if (gestureName === 'Open Palm (Listen)') {
       if (jarvisOrb && jarvisOrb.state !== 'listening') {
         jarvisOrb.setState('listening');
@@ -228,27 +264,44 @@ class GestureController {
     }
   }
 
+  /**
+   * Orientation-Invariant Distance Ratio Calculation for 100% Reliable Hand Detection
+   */
   checkOpenPalm(lm) {
-    return (
-      lm[8].y < lm[6].y &&  // Index
-      lm[12].y < lm[10].y && // Middle
-      lm[16].y < lm[14].y && // Ring
-      lm[20].y < lm[18].y    // Pinky
-    );
+    const wrist = lm[0];
+    const fingerTips = [8, 12, 16, 20];
+    const fingerKnuckles = [5, 9, 13, 17];
+
+    let openFingers = 0;
+    for (let i = 0; i < 4; i++) {
+      const distTip = Math.hypot(lm[fingerTips[i]].x - wrist.x, lm[fingerTips[i]].y - wrist.y);
+      const distKnuckle = Math.hypot(lm[fingerKnuckles[i]].x - wrist.x, lm[fingerKnuckles[i]].y - wrist.y);
+      if (distTip > distKnuckle * 1.25) {
+        openFingers++;
+      }
+    }
+    return openFingers >= 3;
   }
 
   checkClosedFist(lm) {
-    return (
-      lm[8].y > lm[6].y &&
-      lm[12].y > lm[10].y &&
-      lm[16].y > lm[14].y &&
-      lm[20].y > lm[18].y
-    );
+    const wrist = lm[0];
+    const fingerTips = [8, 12, 16, 20];
+    const fingerKnuckles = [5, 9, 13, 17];
+
+    let curledFingers = 0;
+    for (let i = 0; i < 4; i++) {
+      const distTip = Math.hypot(lm[fingerTips[i]].x - wrist.x, lm[fingerTips[i]].y - wrist.y);
+      const distKnuckle = Math.hypot(lm[fingerKnuckles[i]].x - wrist.x, lm[fingerKnuckles[i]].y - wrist.y);
+      if (distTip < distKnuckle * 1.1) {
+        curledFingers++;
+      }
+    }
+    return curledFingers >= 3;
   }
 
   checkPinch(lm) {
     const dist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
-    const isPinch = dist < 0.06;
+    const isPinch = dist < 0.065;
     const volPct = Math.round(Math.min(100, Math.max(0, (0.18 - dist) * 800)));
     return { active: isPinch, volume: volPct };
   }
@@ -264,11 +317,12 @@ class GestureController {
   }
 
   drawHandOverlay(lm) {
+    if (!this.canvasCtx) return;
     const ctx = this.canvasCtx;
     const w = this.canvasElement.width;
     const h = this.canvasElement.height;
 
-    ctx.strokeStyle = '#00f3ff';
+    ctx.strokeStyle = '#00e8ff';
     ctx.fillStyle = '#ff8800';
     ctx.lineWidth = 1.8;
 
@@ -289,7 +343,7 @@ class GestureController {
 
     for (let i = 0; i < lm.length; i++) {
       ctx.beginPath();
-      ctx.arc((1 - lm[i].x) * w, lm[i].y * h, 3.2, 0, 2 * Math.PI);
+      ctx.arc((1 - lm[i].x) * w, lm[i].y * h, 3.0, 0, 2 * Math.PI);
       ctx.fill();
     }
   }
@@ -300,12 +354,23 @@ class GestureController {
 
     if (gestureEl) gestureEl.textContent = this.activeGesture;
     if (scaleEl && jarvisOrb) scaleEl.textContent = jarvisOrb.scale.toFixed(2);
+
+    // Sync HUD Gesture Chips highlighting
+    const chips = document.querySelectorAll('.gesture-chip');
+    chips.forEach(chip => {
+      const key = chip.getAttribute('data-gesture');
+      if (key === this.activeChipKey) {
+        chip.classList.add('active');
+      } else {
+        chip.classList.remove('active');
+      }
+    });
   }
 }
 
 function toggleDebugOverlay() {
-  const canvas = document.getElementById('landmark-canvas');
-  if (canvas) canvas.classList.toggle('hidden');
+  const feed = document.querySelector('.tracking-feed');
+  if (feed) feed.classList.toggle('hidden');
 }
 
 let gestureController = null;

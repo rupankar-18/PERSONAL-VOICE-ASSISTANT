@@ -1,152 +1,521 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
-  <title>Iron Man Jarvis 3D AI Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS 3D — AI Assistant</title>
+
+  <!-- HUD typefaces: Orbitron for display/telemetry labels, Rajdhani for body/UI text, Share Tech Mono for numeric readouts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap"
+    rel="stylesheet">
+
   <style>
+    :root {
+      --bg-void: #020509;
+      --bg-panel: rgba(4, 14, 24, 0.66);
+      --bg-panel-solid: #050f1a;
+      --cyan-core: #00e8ff;
+      --cyan-dim: #0891a8;
+      --cyan-glow: rgba(0, 232, 255, 0.35);
+      --ice-text: #cfeffb;
+      --ice-text-dim: rgba(207, 239, 251, 0.55);
+      --hairline: rgba(0, 232, 255, 0.22);
+      --state-standby: var(--cyan-core);
+      --state-listen: #34ffb0;
+      --state-think: #ff3f8e;
+      --state-speak: #ffb020;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
       user-select: none;
     }
-    body, html {
+
+    body,
+    html {
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #000000;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      color: #00f3ff;
+      background: var(--bg-void);
+      font-family: 'Rajdhani', sans-serif;
+      color: var(--ice-text);
     }
+
+    /* ---------- Ambient background: vignette + faint grid + drifting scanline ---------- */
+    #ambient-bg {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse at center, rgba(0, 60, 80, 0.16) 0%, rgba(0, 0, 0, 0) 55%),
+        repeating-linear-gradient(0deg, rgba(0, 232, 255, 0.035) 0px, rgba(0, 232, 255, 0.035) 1px, transparent 1px, transparent 48px),
+        repeating-linear-gradient(90deg, rgba(0, 232, 255, 0.035) 0px, rgba(0, 232, 255, 0.035) 1px, transparent 1px, transparent 48px);
+    }
+
+    #scan-sweep {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 140px;
+      z-index: 1;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(0, 232, 255, 0) 0%, rgba(0, 232, 255, 0.05) 50%, rgba(0, 232, 255, 0) 100%);
+      animation: sweepDown 7s ease-in-out infinite;
+    }
+
+    @keyframes sweepDown {
+      0% {
+        top: -140px;
+        opacity: 0;
+      }
+
+      8% {
+        opacity: 1;
+      }
+
+      50% {
+        top: 100%;
+        opacity: 1;
+      }
+
+      58% {
+        opacity: 0;
+      }
+
+      100% {
+        top: 100%;
+        opacity: 0;
+      }
+    }
+
     #webgl-container {
       position: absolute;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
-      z-index: 1;
+      z-index: 2;
     }
-    /* Hidden webcam input */
+
     #webcam-video {
       display: none;
     }
-    /* Debug landmark canvas overlay */
-    #landmark-canvas {
+
+    /* ---------- Corner frame brackets — the boot-up signature ---------- */
+    .frame-bracket {
       position: absolute;
-      top: 15px;
-      right: 15px;
+      width: 46px;
+      height: 46px;
+      z-index: 12;
+      pointer-events: none;
+      opacity: 0;
+      filter: drop-shadow(0 0 6px var(--cyan-glow));
+      animation: bracketIn 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .frame-bracket svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .frame-bracket.tl {
+      top: 18px;
+      left: 18px;
+      animation-delay: 0.1s;
+    }
+
+    .frame-bracket.tr {
+      top: 18px;
+      right: 18px;
+      transform: scaleX(-1);
+      animation-delay: 0.25s;
+    }
+
+    .frame-bracket.bl {
+      bottom: 18px;
+      left: 18px;
+      transform: scaleY(-1);
+      animation-delay: 0.4s;
+    }
+
+    .frame-bracket.br {
+      bottom: 18px;
+      right: 18px;
+      transform: scale(-1, -1);
+      animation-delay: 0.55s;
+    }
+
+    @keyframes bracketIn {
+      0% {
+        opacity: 0;
+        transform: scale(0.6);
+      }
+
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    .frame-bracket.tr {
+      animation-name: bracketInTR;
+    }
+
+    .frame-bracket.bl {
+      animation-name: bracketInBL;
+    }
+
+    .frame-bracket.br {
+      animation-name: bracketInBR;
+    }
+
+    @keyframes bracketInTR {
+      0% {
+        opacity: 0;
+        transform: scaleX(-1) scale(0.6);
+      }
+
+      100% {
+        opacity: 1;
+        transform: scaleX(-1) scale(1);
+      }
+    }
+
+    @keyframes bracketInBL {
+      0% {
+        opacity: 0;
+        transform: scaleY(-1) scale(0.6);
+      }
+
+      100% {
+        opacity: 1;
+        transform: scaleY(-1) scale(1);
+      }
+    }
+
+    @keyframes bracketInBR {
+      0% {
+        opacity: 0;
+        transform: scale(-1, -1) scale(0.6);
+      }
+
+      100% {
+        opacity: 1;
+        transform: scale(-1, -1) scale(1);
+      }
+    }
+
+    /* thin hairline rules under header / above response, with tick marks */
+    .hairline {
+      position: absolute;
+      left: 90px;
+      right: 90px;
+      height: 1px;
+      background: linear-gradient(90deg, var(--hairline), transparent 85%);
+      z-index: 11;
+      pointer-events: none;
+    }
+
+    .hairline.top {
+      top: 24px;
+    }
+
+    .hairline.bottom {
+      bottom: 24px;
+      background: linear-gradient(90deg, transparent 15%, var(--hairline));
+    }
+
+    /* ---------- Header ---------- */
+    .hud-header {
+      position: absolute;
+      top: 40px;
+      left: 46px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      pointer-events: none;
+    }
+
+    .hud-mark {
+      width: 34px;
+      height: 34px;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .hud-mark svg {
+      width: 100%;
+      height: 100%;
+      animation: ringRotate 12s linear infinite;
+      filter: drop-shadow(0 0 5px var(--cyan-glow));
+    }
+
+    @keyframes ringRotate {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .hud-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .hud-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: #fff;
+      text-shadow: 0 0 8px var(--cyan-glow), 0 0 22px rgba(0, 232, 255, 0.25);
+    }
+
+    .hud-subtitle {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: var(--ice-text-dim);
+      text-transform: uppercase;
+    }
+
+    .hud-status-badge {
+      font-family: 'Orbitron', sans-serif;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px 6px 10px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      background: rgba(0, 232, 255, 0.08);
+      border: 1px solid var(--cyan-core);
+      color: var(--cyan-core);
+      box-shadow: 0 0 10px rgba(0, 232, 255, 0.25), inset 0 0 10px rgba(0, 232, 255, 0.06);
+      transition: all 0.4s ease;
+      pointer-events: auto;
+    }
+
+    .hud-status-badge .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 6px currentColor;
+      animation: pulseDot 1.6s ease-in-out infinite;
+    }
+
+    @keyframes pulseDot {
+
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      50% {
+        opacity: 0.4;
+        transform: scale(0.72);
+      }
+    }
+
+    .hud-status-badge.listening {
+      background: rgba(52, 255, 176, 0.1);
+      border-color: var(--state-listen);
+      color: var(--state-listen);
+      box-shadow: 0 0 14px rgba(52, 255, 176, 0.35);
+    }
+
+    .hud-status-badge.speaking {
+      background: rgba(255, 176, 32, 0.1);
+      border-color: var(--state-speak);
+      color: var(--state-speak);
+      box-shadow: 0 0 14px rgba(255, 176, 32, 0.35);
+    }
+
+    .hud-status-badge.thinking {
+      background: rgba(255, 63, 142, 0.1);
+      border-color: var(--state-think);
+      color: var(--state-think);
+      box-shadow: 0 0 14px rgba(255, 63, 142, 0.35);
+    }
+
+    /* ---------- Debug landmark feed (top right) ---------- */
+    .tracking-feed {
+      position: absolute;
+      top: 40px;
+      right: 46px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-end;
+    }
+
+    .tracking-feed .feed-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--ice-text-dim);
+    }
+
+    #landmark-canvas {
       width: 220px;
       height: 140px;
-      border: 1px solid rgba(0, 243, 255, 0.4);
-      border-radius: 8px;
-      background: rgba(0, 5, 15, 0.7);
-      z-index: 10;
-      pointer-events: none;
-      opacity: 0.85;
+      border: 1px solid var(--hairline);
+      border-radius: 4px;
+      background: rgba(2, 8, 16, 0.75);
+      box-shadow: 0 0 16px rgba(0, 232, 255, 0.08), inset 0 0 20px rgba(0, 0, 0, 0.5);
       transition: opacity 0.3s;
     }
+
     #landmark-canvas.hidden {
       display: none;
     }
 
-    /* Iron Man Jarvis HUD Overlays */
-    .hud-header {
-      position: absolute;
-      top: 20px;
-      left: 25px;
-      z-index: 10;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      pointer-events: none;
-    }
-    .hud-title {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: 2px;
-      color: #ffffff;
-      text-shadow: 0 0 10px #00f3ff, 0 0 20px #00f3ff;
-    }
-    .hud-status-badge {
-      padding: 4px 12px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 1px;
-      background: rgba(0, 243, 255, 0.15);
-      border: 1px solid #00f3ff;
-      color: #00f3ff;
-      box-shadow: 0 0 8px rgba(0, 243, 255, 0.4);
-      transition: all 0.3s;
-    }
-    .hud-status-badge.listening {
-      background: rgba(0, 255, 128, 0.2);
-      border-color: #00ff80;
-      color: #00ff80;
-      box-shadow: 0 0 12px rgba(0, 255, 128, 0.6);
-    }
-    .hud-status-badge.speaking {
-      background: rgba(255, 180, 0, 0.2);
-      border-color: #ffb400;
-      color: #ffb400;
-      box-shadow: 0 0 12px rgba(255, 180, 0, 0.6);
-    }
-    .hud-status-badge.thinking {
-      background: rgba(255, 0, 128, 0.2);
-      border-color: #ff0080;
-      color: #ff0080;
-      box-shadow: 0 0 12px rgba(255, 0, 128, 0.6);
-    }
-
-    /* Subtitle & Response Panel */
+    /* ---------- Response panel (bottom center) ---------- */
     .hud-response-box {
       position: absolute;
-      bottom: 35px;
+      bottom: 56px;
       left: 50%;
       transform: translateX(-50%);
-      width: 80%;
-      max-width: 800px;
-      padding: 16px 24px;
-      background: rgba(2, 10, 25, 0.75);
-      border: 1px solid rgba(0, 243, 255, 0.35);
-      border-radius: 12px;
-      backdrop-filter: blur(10px);
-      box-shadow: 0 0 25px rgba(0, 243, 255, 0.2);
-      color: #e0f8ff;
-      font-size: 15px;
-      line-height: 1.5;
+      width: 82%;
+      max-width: 760px;
+      padding: 18px 30px;
+      background: var(--bg-panel);
+      border: 1px solid var(--hairline);
+      border-radius: 4px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 0 30px rgba(0, 232, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      color: var(--ice-text);
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 1.55;
       text-align: center;
+      letter-spacing: 0.3px;
       z-index: 10;
-      transition: opacity 0.3s;
       pointer-events: none;
     }
 
-    /* Active Gesture Debug Info */
-    .hud-gesture-info {
+    .hud-response-box::before,
+    .hud-response-box::after {
+      content: '';
       position: absolute;
-      bottom: 25px;
-      left: 25px;
+      top: -1px;
+      bottom: -1px;
+      width: 14px;
+      border: 1px solid var(--cyan-core);
+      opacity: 0.6;
+    }
+
+    .hud-response-box::before {
+      left: -1px;
+      border-right: none;
+    }
+
+    .hud-response-box::after {
+      right: -1px;
+      border-left: none;
+    }
+
+    /* ---------- Gesture legend (bottom left) ---------- */
+    .hud-gesture-panel {
+      position: absolute;
+      bottom: 40px;
+      left: 46px;
       z-index: 10;
-      font-size: 12px;
-      color: rgba(0, 243, 255, 0.7);
-      background: rgba(0, 5, 15, 0.6);
-      padding: 8px 14px;
-      border-radius: 6px;
-      border: 1px solid rgba(0, 243, 255, 0.2);
       pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
-    .hud-btn {
-      margin-top: 6px;
-      padding: 4px 8px;
-      background: rgba(0, 243, 255, 0.2);
-      border: 1px solid #00f3ff;
-      color: #ffffff;
+
+    .gesture-readout {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      color: var(--ice-text-dim);
+      display: flex;
+      gap: 18px;
+    }
+
+    .gesture-readout b {
+      color: var(--cyan-core);
+      font-weight: 400;
+    }
+
+    .gesture-readout span#gesture-name {
+      color: #fff;
+    }
+
+    .gesture-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      max-width: 300px;
+    }
+
+    .gesture-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
       font-size: 10px;
-      border-radius: 4px;
-      cursor: pointer;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--ice-text-dim);
+      background: rgba(0, 232, 255, 0.04);
+      border: 1px solid var(--hairline);
+      border-radius: 3px;
+      transition: all 0.25s ease;
     }
+
+    .gesture-chip svg {
+      width: 12px;
+      height: 12px;
+      opacity: 0.7;
+    }
+
+    .gesture-chip.active {
+      color: var(--bg-void);
+      background: var(--cyan-core);
+      border-color: var(--cyan-core);
+      box-shadow: 0 0 12px var(--cyan-glow);
+    }
+
+    .gesture-chip.active svg {
+      opacity: 1;
+    }
+
+    .hud-btn {
+      align-self: flex-start;
+      margin-top: 2px;
+      padding: 5px 10px;
+      background: transparent;
+      border: 1px solid var(--cyan-dim);
+      color: var(--ice-text-dim);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
     .hud-btn:hover {
-      background: rgba(0, 243, 255, 0.4);
+      background: rgba(0, 232, 255, 0.12);
+      border-color: var(--cyan-core);
+      color: var(--cyan-core);
     }
   </style>
 
@@ -163,30 +532,78 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
+
 <body>
+
+  <div id="ambient-bg"></div>
+  <div id="scan-sweep"></div>
+
   <!-- 3D WebGL Canvas -->
   <div id="webgl-container"></div>
 
   <!-- Hidden Webcam Video Element for MediaPipe -->
   <video id="webcam-video" playsinline></video>
 
-  <!-- Debug Landmark Canvas Overlay -->
-  <canvas id="landmark-canvas" width="220" height="140"></canvas>
+  <!-- Corner HUD frame -->
+  <div class="frame-bracket tl"><svg viewBox="0 0 46 46">
+      <path d="M2 46 L2 10 Q2 2 10 2 L46 2" fill="none" stroke="#00e8ff" stroke-width="2" />
+    </svg></div>
+  <div class="frame-bracket tr"><svg viewBox="0 0 46 46">
+      <path d="M2 46 L2 10 Q2 2 10 2 L46 2" fill="none" stroke="#00e8ff" stroke-width="2" />
+    </svg></div>
+  <div class="frame-bracket bl"><svg viewBox="0 0 46 46">
+      <path d="M2 46 L2 10 Q2 2 10 2 L46 2" fill="none" stroke="#00e8ff" stroke-width="2" />
+    </svg></div>
+  <div class="frame-bracket br"><svg viewBox="0 0 46 46">
+      <path d="M2 46 L2 10 Q2 2 10 2 L46 2" fill="none" stroke="#00e8ff" stroke-width="2" />
+    </svg></div>
 
-  <!-- Iron Man Jarvis HUD Interface -->
+  <div class="hairline top"></div>
+  <div class="hairline bottom"></div>
+
+  <!-- Header -->
   <div class="hud-header">
-    <div class="hud-title">NEHA JARVIS 3D</div>
-    <div id="hud-status" class="hud-status-badge">ONLINE • STANDBY</div>
+    <div class="hud-mark">
+      <svg viewBox="0 0 34 34" fill="none">
+        <circle cx="17" cy="17" r="15" stroke="#00e8ff" stroke-width="1.2" stroke-dasharray="6 5" opacity="0.8" />
+        <circle cx="17" cy="17" r="9" stroke="#00e8ff" stroke-width="1.4" opacity="0.9" />
+        <circle cx="17" cy="17" r="2.4" fill="#00e8ff" />
+      </svg>
+    </div>
+    <div class="hud-title-group">
+      <div class="hud-title">JARVIS</div>
+      <div class="hud-subtitle">gesture-linked interface</div>
+    </div>
+    <div id="hud-status" class="hud-status-badge" style="margin-left:14px;">
+      <span class="dot"></span>ONLINE · STANDBY
+    </div>
   </div>
 
+  <!-- Debug landmark canvas overlay -->
+  <div class="tracking-feed">
+    <div class="feed-label">TRACKING FEED</div>
+    <canvas id="landmark-canvas" width="220" height="140"></canvas>
+  </div>
+
+  <!-- Subtitle & Response Panel -->
   <div id="hud-response" class="hud-response-box">
-    🖐️ 3D Gesture Control active. Open Palm: Listen | Fist: Idle | 2 Fists: Scale | Wrist: Rotate | Swipe: Nav
+    Gesture control active — open palm to listen, fist to idle, two fists to scale, wrist to rotate, swipe to navigate.
   </div>
 
-  <div class="hud-gesture-info">
-    <div><strong>Active Gesture:</strong> <span id="gesture-name">None</span></div>
-    <div><strong>Orb Scale:</strong> <span id="orb-scale-val">1.00</span></div>
-    <button class="hud-btn" onclick="toggleDebugOverlay()">Toggle Hand Tracking Canvas</button>
+  <!-- Active Gesture Debug Info -->
+  <div class="hud-gesture-panel">
+    <div class="gesture-readout">
+      <div><b>GESTURE</b> <span id="gesture-name">None</span></div>
+      <div><b>SCALE</b> <span id="orb-scale-val">1.00</span></div>
+    </div>
+    <div class="gesture-chips">
+      <div class="gesture-chip" data-gesture="open_palm">◐ Listen</div>
+      <div class="gesture-chip" data-gesture="fist">● Idle</div>
+      <div class="gesture-chip" data-gesture="two_fists">⇔ Scale</div>
+      <div class="gesture-chip" data-gesture="rotate">↻ Rotate</div>
+      <div class="gesture-chip" data-gesture="swipe">⇄ Nav</div>
+    </div>
+    <button class="hud-btn" onclick="toggleDebugOverlay()">Toggle tracking feed</button>
   </div>
 
   <!-- Custom Renderer Scripts -->
@@ -194,4 +611,5 @@
   <script src="gestures.js"></script>
   <script src="app.js"></script>
 </body>
+
 </html>

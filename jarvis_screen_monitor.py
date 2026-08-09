@@ -601,11 +601,42 @@ def _analyze_screen_with_gemini(image) -> dict:
         return {"description": "", "creepy_alert": False, "creepy_details": "", "wa_type": "NONE", "wa_person": "", "wa_summary": ""}
 
 
+def _speak_local_tts(text: str):
+    """
+    Local speech output fallback using Win32 SAPI SpVoice.
+    Guarantees the user hears the audio warning and 'nije koro skill improve koro'
+    even when LiveKit agent session is disconnected or offline.
+    """
+    def _run_speech():
+        try:
+            import win32com.client
+            speaker = win32com.client.Dispatch("SAPI.SpVoice")
+            speaker.Speak(text)
+            return
+        except Exception:
+            pass
+        try:
+            clean_text = text.replace("'", "''")
+            ps_cmd = (
+                "Add-Type -AssemblyName System.Speech; "
+                "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                f"$synth.Speak('{clean_text}')"
+            )
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, timeout=5)
+        except Exception as e:
+            logger.debug(f"[Monitor] SAPI speech error: {e}")
+
+    threading.Thread(target=_run_speech, daemon=True).start()
+
+
 async def _fire_voice_alert(message: str):
-    """Send a voice alert through Neha's session."""
+    """Send a voice alert through Neha's session AND local SAPI TTS fallback."""
+    # Always trigger local SAPI TTS to guarantee audio is spoken out loud immediately
+    _speak_local_tts(message)
+
     global _session_ref
     if _session_ref is None:
-        print("[MONITOR WARNING] Voice alert skipped: _session_ref is None.")
+        print("[MONITOR WARNING] LiveKit session_ref is None (spoken via local SAPI TTS).")
         return
     try:
         print(f"[MONITOR VOICE ALERT] Firing voice reply to Neha: {message[:80]}...")
@@ -631,83 +662,90 @@ def _monitoring_loop():
 
     logger.info("[Monitor] Screen monitor started.")
     last_screenshot_time = 0.0
-    loop = asyncio.new_event_loop()
-
-    def run_async(coro):
-        """Run async coroutine from sync thread."""
-        try:
-            future = asyncio.run_coroutine_threadsafe(coro, _get_or_create_event_loop())
-            future.result(timeout=10)
-        except Exception as e:
-            logger.debug(f"[Monitor] async run error: {e}")
+    pending_ai_code = False
+    ai_source_site = ""
 
     while _monitor_active:
         try:
             current_time = time.time()
 
             # ----------------------------------------------------------------
-            # 1. Clipboard & AI Anti-Cheating Monitoring (every cycle ~1.5s)
+            # 1. Clipboard & AI Anti-Cheating Inspection (every cycle ~0.5s)
             # ----------------------------------------------------------------
             clipboard_content = _get_clipboard()
 
             if clipboard_content and clipboard_content != _last_clipboard_content:
                 _last_clipboard_content = clipboard_content
-
                 cheating_domain = _detect_cheating_domain_in_browser()
-                active_target = _get_active_target_editor()
                 is_ai_code = _is_suspicious_clipboard(clipboard_content) or (cheating_domain is not None)
 
-                # Trigger detection when AI code is copied OR copied while an AI site is open,
-                # AND user pastes / works in VS Code, Antigravity IDE, or an Online Compiler (Chrome/MS Edge).
-                if is_ai_code and (active_target or cheating_domain):
-                    target_name = active_target or "VS Code / Online Compiler"
-                    site_mention = f" from {cheating_domain}" if cheating_domain else " from AI"
+                if is_ai_code:
+                    pending_ai_code = True
+                    ai_source_site = cheating_domain or "AI Chatbot"
+                    logger.info(f"[Monitor] Flagged AI code in clipboard from {ai_source_site}.")
+
+            # Check if user is currently focused on VS Code, Antigravity IDE, or an Online Compiler
+            active_target = _get_active_target_editor()
+
+            # If user has AI code in clipboard AND is in VS Code, Antigravity, or an Online Compiler
+            if pending_ai_code and active_target:
+                # Re-verify clipboard still has content
+                curr_clip = _get_clipboard()
+                if curr_clip and (len(curr_clip.strip()) > 10):
                     time_since_last = current_time - _last_violation_time
+                    target_name = active_target
+                    site_mention = f" from {ai_source_site}" if ai_source_site else " from AI"
 
                     if not _violation_warned or time_since_last >= VIOLATION_MEMORY_SEC:
                         # ---- STAGE 1: FIRST WARNING (First offense) ----
                         _violation_warned = True
                         _last_violation_time = current_time
+                        pending_ai_code = False  # Consumed for first warning
 
                         warning_msg = (
-                            f"[AI CODE CHEATING ADVISORY] Rupankar Sir copied AI code{site_mention} for target {target_name}. "
-                            f"Please speak RIGHT NOW in your sweet, gentle voice to Rupankar Sir as Neha: "
-                            f"'রূপঙ্কর স্যার! আপনি {site_mention} থেকে কোড কপি করে {target_name}-এ পেস্ট করার চেষ্টা করছেন! প্লিজ স্যার চিটিং করবেন না, নিজে চেষ্টা করুন কোড বানিয়ে স্কিল ইমপ্রুভ করতে!'"
+                            f"রূপঙ্কর স্যার! আপনি {site_mention} থেকে কোড কপি করে {target_name}-এ পেস্ট করতে গেছেন! "
+                            f"এটি চিটিং! প্লিজ স্যার চিটিং করবেন না, নিজে চেষ্টা করুন কোড বানিয়ে স্কিল ইমপ্রুভ করতে!"
                         )
+                        print("\n" + "⚠️ "*25)
+                        print(f"⚠️ [INTEGRITY WARNING 1] AI Code copy detected for target: {target_name}")
+                        print("⚠️ WARNING GIVEN TO USER: Please write code yourself!")
+                        print("⚠️ "*25 + "\n")
+
                         logger.warning(f"[Monitor] CHEATING STAGE 1 WARNING: User warned for {target_name}.")
                         asyncio.run_coroutine_threadsafe(
                             _fire_voice_alert(warning_msg), _get_main_event_loop()
                         )
 
                     else:
-                        # ---- STAGE 2: HARD ENFORCEMENT (User didn't listen / ignored warning) ----
-                        _violation_warned = False  # Reset for future cycle
+                        # ---- STAGE 2: HARD ENFORCEMENT (User ignored warning / repeated attempt) ----
+                        _violation_warned = False  # Reset for next cycle
                         _last_violation_time = current_time
+                        pending_ai_code = False  # Consumed enforcement
 
-                        logger.error(f"[Monitor] CHEATING STAGE 2 ENFORCEMENT: Wiping code, deleting file, closing tab, telling user 'nije koro skill improve koro'!")
+                        logger.error(f"[Monitor] CHEATING HARD ENFORCEMENT TRIGGERED FOR {target_name}!")
 
                         # 1. Clear clipboard immediately
                         _clear_clipboard()
 
-                        # 2. Delete/wipe the code and file in active editor/compiler
+                        # 2. Delete code & file in active editor/compiler
                         _wipe_active_editor_code()
 
-                        # 3. Close the tab if target/source is Chrome or MS Edge
-                        if cheating_domain:
-                            _close_cheating_browser_tab(cheating_domain)
+                        # 3. Close the browser tab if target/source is Chrome or MS Edge
+                        if ai_source_site and ai_source_site != "AI Chatbot":
+                            _close_cheating_browser_tab(ai_source_site)
                         _close_current_active_tab_or_window()
 
-                        # 4. Speak and log the exact required message: "nije koro skill improve koro"
+                        # 4. Speak out loud & log required message: "nije koro skill improve koro"
                         strict_msg = (
-                            f"[CHEATING ENFORCEMENT TRIGGERED] Rupankar Sir ignored the warning and pasted AI code into {target_name}. "
-                            f"The code and file have been deleted and the browser tab was closed. "
-                            f"Please speak RIGHT NOW out loud in a stern, firm voice to Rupankar Sir as Neha: "
-                            f"'nije koro skill improve koro! রূপঙ্কর স্যার, AI থেকে কপি করা কোড ও ফাইল মুছে দেওয়া হয়েছে এবং ব্রাউজার ট্যাব বন্ধ করা হয়েছে! নিজে কোড করে স্কিল ইমপ্রুভ করুন!'"
+                            "nije koro skill improve koro! "
+                            "রূপঙ্কর স্যার, AI থেকে কপি করা কোড ও ফাইল মুছে দেওয়া হয়েছে এবং ব্রাউজার ট্যাব বন্ধ করা হয়েছে! "
+                            "নিজে কোড বানিয়ে স্কিল ইমপ্রুভ করুন!"
                         )
-                        print("\n" + "="*70)
-                        print("🚨 [ANTI-CHEATING ENFORCED] DELETED CODE & FILE, CLOSED BROWSER TAB!")
+                        print("\n" + "🚨 "*25)
+                        print(f"🚨 [ANTI-CHEATING ENFORCED] DELETED CODE & FILE IN {target_name}!")
+                        print("🚨 CLOSED BROWSER TAB IN CHROME / MS EDGE!")
                         print("🗣️ MESSAGE TO USER: nije koro skill improve koro")
-                        print("="*70 + "\n")
+                        print("🚨 "*25 + "\n")
 
                         asyncio.run_coroutine_threadsafe(
                             _fire_voice_alert(strict_msg), _get_main_event_loop()
@@ -1055,3 +1093,16 @@ SCREEN_MONITOR_TOOLS = [
     stop_screen_monitoring_tool,
     get_screen_context_tool,
 ]
+
+
+if __name__ == "__main__":
+    print("="*70)
+    print("🚀 LAUNCHING NEHA ANTI-CHEATING SCREEN MONITOR STANDALONE")
+    print("="*70)
+    start_monitor()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        stop_monitor()
+        print("\n[MONITOR] Stopped.")

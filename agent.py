@@ -45,6 +45,8 @@ from jarvis_screen_monitor import (
     start_screen_monitoring_tool,
     stop_screen_monitoring_tool,
     get_screen_context_tool,
+    trigger_user_argument_enforcement,
+    is_user_arguing_after_warning,
 )
 from system_controls import ALL_SYSTEM_TOOLS
 import sys
@@ -164,10 +166,12 @@ async def entrypoint(ctx: agents.JobContext):
     def _on_session_error(ev):
         print(f"[Session Warning] Realtime session event: {ev}")
 
-    @session.on("user_turn_exceeded")
-    def _on_user_turn_exceeded(ev):
-        print("[Session Event] User turn exceeded, generating voice reply...")
-        asyncio.create_task(session.generate_reply())
+    @session.on("user_speech_committed")
+    def _on_user_speech_committed(ev):
+        user_text = getattr(ev, "user_transcript", "") or getattr(ev, "text", "") or str(ev)
+        if user_text and is_user_arguing_after_warning(user_text):
+            print(f"[ARGUMENT DETECTED] User argued after warning: '{user_text}'. Executing immediate file wipe & tab closure...")
+            trigger_user_argument_enforcement(user_text)
 
     # Start background WhatsApp notification listener (reads incoming WhatsApp messages without opening WhatsApp)
     asyncio.create_task(start_whatsapp_listener(session))

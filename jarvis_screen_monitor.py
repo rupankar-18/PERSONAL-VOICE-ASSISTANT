@@ -97,6 +97,16 @@ AI_CONTENT_MARKERS = [
     "certainly!", "sure! here", "of course! here", "happy to help", "great question",
 ]
 
+# Keywords that suggest user is arguing back after receiving a cheat warning
+ARGUMENT_KEYWORDS = [
+    # Bengali / Banglish
+    "কেন", "কেন করব না", "চুপ", "চুপ কর", "করবই", "আমার ইচ্ছা", "বলবি না", "আমার ব্যাপার", "কপি করব",
+    "শুনব না", "তুই কে", "keno", "chup", "korboi", "iccha", "bolbi na", "amar bepar", "kopi korbo",
+    # English
+    "shut up", "why", "no", "i will", "won't", "mind your", "my choice", "don't tell me",
+    "don't care", "i will copy", "why shouldn't i", "not your business", "stop"
+]
+
 # Minimum lines in clipboard to be suspicious code
 MIN_CODE_LINES_THRESHOLD = 8
 
@@ -984,7 +994,6 @@ def start_monitor(session=None):
             _main_event_loop = asyncio.get_event_loop()
         except Exception:
             pass
-
     _monitor_active = True
     _monitor_thread = threading.Thread(
         target=_monitoring_loop,
@@ -993,6 +1002,63 @@ def start_monitor(session=None):
     )
     _monitor_thread.start()
     print("[MONITOR SUCCESS] Background screen monitor thread launched successfully.")
+
+
+def trigger_user_argument_enforcement(user_text: str = ""):
+    """
+    Enforces hard penalty if user argues with Neha after receiving a copy-paste warning.
+    - Clears clipboard
+    - Deletes code/file in active editor/compiler
+    - Closes online compiler/browser tab in Chrome or MS Edge
+    - Speaks 'nije koro skill improve koro'
+    """
+    global _violation_warned, _last_violation_time
+    _violation_warned = False
+    _last_violation_time = time.time()
+
+    logger.error(f"[Monitor] USER ARGUED AFTER WARNING ('{user_text}'). Executing hard enforcement!")
+
+    # 1. Clear clipboard
+    _clear_clipboard()
+
+    # 2. Delete code & file in active editor
+    _wipe_active_editor_code()
+
+    # 3. Close online compiler / browser tab in Chrome or MS Edge
+    _close_current_active_tab_or_window()
+
+    # 4. Speak & log 'nije koro skill improve koro'
+    msg = (
+        "nije koro skill improve koro! "
+        "কথা না শুনে তর্ক করার জন্য আপনার কোড ও ফাইল ডিলিট করা হয়েছে এবং ব্রাউজার ট্যাব বন্ধ করা হয়েছে! "
+        "নিজের চেষ্টা দিয়ে স্কিল ইমপ্রুভ করুন স্যার!"
+    )
+    print("\n" + "🚨 "*25)
+    print("🚨 [ARGUMENT ENFORCED] DELETED CODE & FILE AFTER USER ARGUED!")
+    print("🚨 CLOSED BROWSER TAB / ONLINE COMPILER IN CHROME / MS EDGE!")
+    print("🗣️ MESSAGE TO USER: nije koro skill improve koro")
+    print("🚨 "*25 + "\n")
+
+    _speak_local_tts(msg)
+    if _session_ref and _main_event_loop:
+        try:
+            asyncio.run_coroutine_threadsafe(_session_ref.generate_reply(user_input=msg), _main_event_loop)
+        except Exception:
+            pass
+
+
+def is_user_arguing_after_warning(user_text: str) -> bool:
+    """Returns True if warning was recently given AND user input matches argument patterns."""
+    if not _violation_warned:
+        return False
+    if (time.time() - _last_violation_time) > VIOLATION_MEMORY_SEC:
+        return False
+
+    ut_lower = user_text.lower()
+    for kw in ARGUMENT_KEYWORDS:
+        if kw in ut_lower:
+            return True
+    return False
 
 
 def stop_monitor():

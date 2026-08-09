@@ -264,11 +264,14 @@ async def _start_idle_crying_listener(session: AgentSession):
 
 
 if __name__ == "__main__":
-    if not authenticate_admin(timeout_sec=10):
-        print("[EXIT] Face not matched. Access denied.")
-        sys.exit(1)
+    # If explicitly requested via --auth, run camera face authentication
+    if "--auth" in sys.argv:
+        if not authenticate_admin(timeout_sec=10):
+            print("[EXIT] Face not matched. Access denied.")
+            sys.exit(1)
+        print("[SUCCESS] Admin face matched! Access granted.")
     
-    print("[SUCCESS] Face matched! Launching Voice Assistant...")
+    print("[SUCCESS] Launching Voice Assistant & WebSocket Bridge Server...")
     agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
 
 

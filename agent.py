@@ -217,6 +217,7 @@ async def _start_idle_crying_listener(session: AgentSession):
 
     while True:
         await asyncio.sleep(10)
+        elapsed = time.time() - last_activity_time
         if elapsed >= 210 and not idle_triggered:
             idle_triggered = True
             crying_msg = (

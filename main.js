@@ -40,6 +40,10 @@ function getPythonExecutable() {
 }
 
 function launchPythonBackend() {
+  if (pythonProcess) {
+    console.log('[Electron Main] Python Assistant Backend process already running.');
+    return;
+  }
   const pythonExecutable = getPythonExecutable();
   const agentScript = path.join(__dirname, 'agent.py');
 
@@ -51,6 +55,7 @@ function launchPythonBackend() {
 
   pythonProcess.on('exit', (code, signal) => {
     console.log(`[Electron Main] Python Assistant Backend process exited with code ${code}, signal ${signal}`);
+    pythonProcess = null;
   });
 }
 

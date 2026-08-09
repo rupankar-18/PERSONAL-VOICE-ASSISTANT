@@ -433,7 +433,10 @@ _last_whatsapp_alert_time: float = 0.0
 _last_creepy_alert_time: float = 0.0
 
 def _wipe_active_editor_code():
-    """Wipe all content in active window/editor if user ignored warnings and cheated."""
+    """Wipe all content in active window/editor AND truncate file on disk if user cheated/argued."""
+    title = _get_foreground_window_title()
+
+    # 1. Send Ctrl+A -> Delete -> Ctrl+S to active GUI editor
     try:
         if _HAS_PYAUTOGUI:
             import pyautogui as pag
@@ -444,7 +447,6 @@ def _wipe_active_editor_code():
             time.sleep(0.1)
             pag.hotkey("ctrl", "s")  # Save wiped empty file to disk
             time.sleep(0.1)
-            return
     except Exception as e:
         logger.warning(f"[Monitor] PyAutoGUI wipe active editor failed: {e}")
 
@@ -457,6 +459,20 @@ def _wipe_active_editor_code():
         subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, timeout=3)
     except Exception:
         pass
+
+    # 2. Extract active filename from window title (e.g. mergesort.c) and truncate file on disk
+    try:
+        match = re.search(r'([a-zA-Z0-9_\-\.]+\.(py|c|cpp|java|js|ts|html|css|json|txt|md|sql|sh|php|cs|go|rs))', title, re.IGNORECASE)
+        if match:
+            fn = match.group(1)
+            cwd = os.getcwd()
+            fp = os.path.join(cwd, fn)
+            if os.path.exists(fp):
+                with open(fp, "w", encoding="utf-8") as f:
+                    f.write("")
+                logger.info(f"[Monitor] Successfully wiped file on disk: {fp}")
+    except Exception as e:
+        logger.warning(f"[Monitor] File disk wipe error: {e}")
 
 
 VISION_MODELS_FALLBACK_CHAIN = [

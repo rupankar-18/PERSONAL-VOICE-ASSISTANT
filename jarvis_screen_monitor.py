@@ -524,9 +524,10 @@ def _analyze_screen_with_gemini(image) -> dict:
             "   - Check if ChatGPT, OpenAI, Claude, Chegg, CourseHero, Quizlet, etc. are open.\n"
             "   - Format line: 'IDE_PASTE_TARGET: <antigravity | vscode | online_compiler | notepad | browser | unknown>'\n"
             "7. Creepy/NSFW/Crime Content Check:\n"
-            "   - Check if creepy, explicit, NSFW, adult pornographic, illegal crime, or disturbing content is visible.\n"
+            "   - Check if creepy, explicit, NSFW, adult pornographic, illegal crime, or disturbing content is visible on screen.\n"
+            "   - IMPORTANT: Source code in IDEs (VS Code, Antigravity), Python scripts, prompt text, terminal logs, and programming development tools ARE NOT creepy content. ALWAYS set CREEPY_CONTENT: NO when user is programming or working in an IDE/Terminal.\n"
             "   - Format line: 'CREEPY_CONTENT: YES' or 'CREEPY_CONTENT: NO'.\n"
-            "   - Format line: 'CREEPY_DETAILS: <brief description of creepy/nsfw content & website/app name>'.\n"
+            "   - Format line: 'CREEPY_DETAILS: <brief description of creepy/nsfw content & website/app name>'\n"
             "8. WhatsApp Chat Intelligence & Sentiment Analysis:\n"
             "   - Check if WhatsApp (Web or App) is open on screen.\n"
             "   - If WhatsApp is open, read visible messages in active chat window and classify context/mood:\n"
@@ -573,6 +574,10 @@ def _analyze_screen_with_gemini(image) -> dict:
         ad_popup_alert = "AD_POPUP_DETECTED: YES" in raw_upper and not ("AD_POPUP_DETECTED: NO" in raw_upper)
 
         creepy_alert = "CREEPY_CONTENT: YES" in raw_upper and not ("CREEPY_CONTENT: NO" in raw_upper)
+        # OVERRIDE FALSE POSITIVE: If user is working in VS Code, Antigravity, IDE, Terminal, or editing code, NEVER flag creepy content!
+        if _get_active_target_editor() or any(k in raw_upper for k in ["VS CODE", "ANTIGRAVITY", "PYTHON", "TERMINAL", "MONITOR", "IDE", "CODE"]):
+            creepy_alert = False
+
         creepy_details = ""
         if creepy_alert:
             for line in raw_text.splitlines():

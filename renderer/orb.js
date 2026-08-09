@@ -1,6 +1,17 @@
 /**
  * Iron Man Jarvis 3D Glowing Particle Energy Sphere / Orb Renderer
  * Ultra-Smooth Delta-Time Lerp + Custom Shaders + UnrealBloomPass Post-Processing
+ *
+ * FIX NOTES (why the flicker happened + what changed):
+ * - Gesture-driven scale (this.scale) and voice/speaking modulation (voiceAmp)
+ *   used to BOTH write directly into particleSphere.scale in the same frame,
+ *   fighting each other -> visible flicker whenever the assistant spoke while
+ *   a hand was in frame (or right after gestures stopped).
+ * - Now: this.scale is the ONLY thing driving the lerped "base" scale from
+ *   gestures. Voice speaking adds a SEPARATE, smoothed multiplicative pulse
+ *   (this.voicePulse) on top, so the two never overwrite one another.
+ * - bloomPass.strength is now lerped toward a target instead of being hard-set
+ *   every frame, removing the pop/flicker on state changes and during speech.
  */
 
 class JarvisOrb {
@@ -20,6 +31,13 @@ class JarvisOrb {
     this.targetParticleSpread = 1.0;
     this.brightness = 1.0;
     this.targetBrightness = 1.0;
+
+    // Bloom is now smoothed instead of hard-set every frame
+    this.bloomStrength = 1.8;
+    this.targetBloomStrength = 1.8;
+
+    // Voice pulse is a SEPARATE smoothed multiplier, never mixes with gesture scale directly
+    this.voicePulse = 1.0;
 
     this.state = 'idle'; // 'idle', 'listening', 'thinking', 'speaking'
     this.lastTime = performance.now();
@@ -60,7 +78,6 @@ class JarvisOrb {
     const colorCyan = new THREE.Color(0x00f3ff); // Tech cyan accent
 
     for (let i = 0; i < particleCount; i++) {
-      // Golden Ratio / Fibonacci sphere distribution
       const u = Math.random();
       const v = Math.random();
       const theta = u * 2.0 * Math.PI;
@@ -103,7 +120,6 @@ class JarvisOrb {
     geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
     this.originalPositions = originalPositions;
 
-    // Shader Material with Delta-Time Harmonic Turbulence & Speech Wave Modulation
     const vertexShader = `
       attribute float size;
       attribute vec3 color;
@@ -116,7 +132,6 @@ class JarvisOrb {
         vColor = color;
         vec3 pos = position * uSpread;
 
-        // Smooth multi-harmonic organic turbulence
         float freq = 2.5 + uSpeakFactor * 5.0;
         float amp = 0.09 + uSpeakFactor * 0.25;
 
@@ -124,7 +139,6 @@ class JarvisOrb {
         pos.y += cos(uTime * freq + position.z * 2.2) * amp;
         pos.z += sin(uTime * freq + position.x * 2.2) * amp;
 
-        // Dynamic voice shockwave pulse radiating outward when assistant speaks
         if (uSpeakFactor > 0.01) {
           float wave = sin(uTime * 20.0 - length(position) * 3.5) * uSpeakFactor * 0.25;
           pos += normalize(position) * wave;
@@ -278,23 +292,23 @@ class JarvisOrb {
       this.targetBrightness = 1.6;
       this.targetParticleSpread = 1.25;
       this.targetSpeakFactor = 0.0;
-      this.bloomPass.strength = 2.4;
+      this.targetBloomStrength = 2.4;
     } else if (stateName === 'thinking') {
       this.targetBrightness = 2.0;
       this.targetParticleSpread = 1.4;
       this.targetSpeakFactor = 0.3;
-      this.bloomPass.strength = 3.0;
+      this.targetBloomStrength = 3.0;
     } else if (stateName === 'speaking') {
       this.targetBrightness = 2.2;
       this.targetParticleSpread = 1.35;
       this.targetSpeakFactor = 1.0;
-      this.bloomPass.strength = 2.8;
+      this.targetBloomStrength = 2.8;
     } else {
       // idle
       this.targetBrightness = 1.0;
       this.targetParticleSpread = 1.0;
       this.targetSpeakFactor = 0.0;
-      this.bloomPass.strength = 1.8;
+      this.targetBloomStrength = 1.8;
     }
   }
 
@@ -313,9 +327,11 @@ class JarvisOrb {
     this.lastTime = now;
     const time = now * 0.001;
 
-    // Delta-Time Exponential Lerp for 100% Frame-Rate Independent Smoothness
     const lerpSpeed = 10.0;
     const lerpFactor = 1.0 - Math.exp(-lerpSpeed * dt);
+
+    // Bloom now lerps toward its target too (was hard-set before -> caused pops)
+    const bloomLerpFactor = 1.0 - Math.exp(-6.0 * dt);
 
     this.scale += (this.targetScale - this.scale) * lerpFactor;
     this.rotationX += (this.targetRotationX - this.rotationX) * lerpFactor;
@@ -323,19 +339,28 @@ class JarvisOrb {
     this.particleSpread += (this.targetParticleSpread - this.particleSpread) * lerpFactor;
     this.brightness += (this.targetBrightness - this.brightness) * lerpFactor;
     this.speakFactor += (this.targetSpeakFactor - this.speakFactor) * lerpFactor;
+    this.bloomStrength += (this.targetBloomStrength - this.bloomStrength) * bloomLerpFactor;
 
-    // Apply scale & rotation
-    this.particleSphere.scale.set(this.scale, this.scale, this.scale);
+    // --- Voice pulse: fully separate smoothed multiplier, never overwrites gesture scale ---
+    let targetVoicePulse = 1.0;
+    if (this.state === 'speaking') {
+      targetVoicePulse = 1.0 + (Math.sin(time * 16.0) * 0.10 + Math.cos(time * 26.0) * 0.05) * this.speakFactor;
+    }
+    const pulseLerpFactor = 1.0 - Math.exp(-14.0 * dt);
+    this.voicePulse += (targetVoicePulse - this.voicePulse) * pulseLerpFactor;
+
+    // Final render scale = gesture-driven base scale * smoothed voice pulse (no fighting)
+    const finalScale = this.scale * this.voicePulse;
+
+    this.particleSphere.scale.set(finalScale, finalScale, finalScale);
     this.energyLines.scale.set(this.scale, this.scale, this.scale);
     this.hudGroup.scale.set(this.scale, this.scale, this.scale);
 
-    // Speed up rotation when assistant is speaking
     const spinSpeed = 0.25 + this.speakFactor * 0.75;
     this.particleSphere.rotation.x = this.rotationX + Math.sin(time * 0.5) * 0.08;
     this.particleSphere.rotation.y = this.rotationY + time * spinSpeed;
     this.energyLines.rotation.y = -time * (0.35 + this.speakFactor * 0.85);
 
-    // Accelerate HUD ring rotations when speaking
     if (this.hudRings) {
       const ringSpeed = 1.0 + this.speakFactor * 1.5;
       this.hudRings[0].rotation.z = time * 0.5 * ringSpeed;
@@ -343,22 +368,20 @@ class JarvisOrb {
       this.hudRings[2].rotation.z = time * 0.35 * ringSpeed;
     }
 
-    // Audio-reactive voice amplitude oscillation while speaking
+    // Bloom "breathing" while speaking modulates the TARGET, which is then lerped above
+    // instead of hard-setting bloomPass.strength directly (that was the flicker source).
     if (this.state === 'speaking') {
-      const voiceAmp = 1.0 + (Math.sin(time * 16.0) * 0.10 + Math.cos(time * 26.0) * 0.05);
-      this.particleSphere.scale.multiplyScalar(voiceAmp);
-      this.bloomPass.strength = 2.4 + Math.sin(time * 12.0) * 0.6;
+      this.targetBloomStrength = 2.4 + Math.sin(time * 12.0) * 0.6 * this.speakFactor;
     } else if (this.state === 'thinking') {
       this.particleSphere.rotation.y += 0.04;
     }
+    this.bloomPass.strength = this.bloomStrength;
 
-    // Update Shader Uniforms
     this.orbUniforms.uTime.value = time;
     this.orbUniforms.uSpread.value = this.particleSpread;
     this.orbUniforms.uBrightness.value = this.brightness;
     this.orbUniforms.uSpeakFactor.value = this.speakFactor;
 
-    // Render Scene through UnrealBloomPass
     this.composer.render();
   }
 

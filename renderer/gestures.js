@@ -23,6 +23,9 @@ class GestureController {
     this.wristXBuffer = [];
     this.swipeCooldown = 0;
 
+    // Smoothed two-hand distance (prevents scale/spread jitter feeding into orb targets)
+    this.smoothedHandDist = null;
+
     this.showOverlay = true;
 
     this.initMediaPipe();
@@ -183,10 +186,22 @@ class GestureController {
 
     if (hands.length === 2) {
       // TWO HAND GESTURES: Dynamic Scale & Particle Spread
+      // Hands far apart -> orb expands (bigger scale + wider particle spread).
+      // Hands brought close together -> orb contracts (smaller scale + tighter spread).
       const hand1Wrist = hands[0][0];
       const hand2Wrist = hands[1][0];
 
-      const dist = Math.hypot(hand1Wrist.x - hand2Wrist.x, hand1Wrist.y - hand2Wrist.y);
+      const rawDist = Math.hypot(hand1Wrist.x - hand2Wrist.x, hand1Wrist.y - hand2Wrist.y);
+
+      // Smooth the raw distance signal itself (low-pass) so tiny per-frame tracking
+      // noise doesn't turn into a jittery/flickering target for the orb's lerp.
+      if (this.smoothedHandDist === null) {
+        this.smoothedHandDist = rawDist;
+      } else {
+        this.smoothedHandDist += (rawDist - this.smoothedHandDist) * 0.25;
+      }
+      const dist = this.smoothedHandDist;
+
       const targetScale = Math.min(2.5, Math.max(0.4, dist * 3.0));
       const targetSpread = Math.min(2.3, Math.max(0.5, dist * 2.7));
 
@@ -198,6 +213,8 @@ class GestureController {
       chipKey = 'two_fists';
 
     } else if (hands.length === 1) {
+      // Reset the two-hand smoothing buffer so the next two-hand gesture starts fresh
+      this.smoothedHandDist = null;
       const lm = hands[0];
 
       const isOpenPalm = this.checkOpenPalm(lm);
@@ -344,11 +361,11 @@ class GestureController {
     ctx.lineWidth = 1.8;
 
     const connections = [
-      [0,1],[1,2],[2,3],[3,4],
-      [0,5],[5,6],[6,7],[7,8],
-      [5,9],[9,10],[10,11],[11,12],
-      [9,13],[13,14],[14,15],[15,16],
-      [13,17],[17,18],[18,19],[19,20],[0,17]
+      [0, 1], [1, 2], [2, 3], [3, 4],
+      [0, 5], [5, 6], [6, 7], [7, 8],
+      [5, 9], [9, 10], [10, 11], [11, 12],
+      [9, 13], [13, 14], [14, 15], [15, 16],
+      [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]
     ];
 
     for (const [p1, p2] of connections) {

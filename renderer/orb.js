@@ -103,25 +103,35 @@ class JarvisOrb {
     geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
     this.originalPositions = originalPositions;
 
-    // Shader Material with Delta-Time Harmonic Turbulence
+    // Shader Material with Delta-Time Harmonic Turbulence & Speech Wave Modulation
     const vertexShader = `
       attribute float size;
       attribute vec3 color;
       varying vec3 vColor;
       uniform float uTime;
       uniform float uSpread;
+      uniform float uSpeakFactor;
 
       void main() {
         vColor = color;
         vec3 pos = position * uSpread;
 
         // Smooth multi-harmonic organic turbulence
-        pos.x += sin(uTime * 2.5 + position.y * 1.8) * 0.09;
-        pos.y += cos(uTime * 2.5 + position.z * 1.8) * 0.09;
-        pos.z += sin(uTime * 2.5 + position.x * 1.8) * 0.09;
+        float freq = 2.5 + uSpeakFactor * 5.0;
+        float amp = 0.09 + uSpeakFactor * 0.25;
+
+        pos.x += sin(uTime * freq + position.y * 2.2) * amp;
+        pos.y += cos(uTime * freq + position.z * 2.2) * amp;
+        pos.z += sin(uTime * freq + position.x * 2.2) * amp;
+
+        // Dynamic voice shockwave pulse radiating outward when assistant speaks
+        if (uSpeakFactor > 0.01) {
+          float wave = sin(uTime * 20.0 - length(position) * 3.5) * uSpeakFactor * 0.25;
+          pos += normalize(position) * wave;
+        }
 
         vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-        gl_PointSize = size * (260.0 / -mvPosition.z);
+        gl_PointSize = size * ((260.0 + uSpeakFactor * 90.0) / -mvPosition.z);
         gl_Position = projectionMatrix * mvPosition;
       }
     `;
@@ -145,7 +155,11 @@ class JarvisOrb {
       uTime: { value: 0 },
       uSpread: { value: 1.0 },
       uBrightness: { value: 1.0 },
+      uSpeakFactor: { value: 0.0 },
     };
+
+    this.speakFactor = 0.0;
+    this.targetSpeakFactor = 0.0;
 
     const material = new THREE.ShaderMaterial({
       vertexShader,
@@ -257,25 +271,29 @@ class JarvisOrb {
 
     if (statusBadge) {
       statusBadge.className = 'hud-status-badge ' + stateName;
-      statusBadge.textContent = stateName.toUpperCase() + ' • ONLINE';
+      statusBadge.innerHTML = `<span class="dot"></span>${stateName.toUpperCase()} · ONLINE`;
     }
 
     if (stateName === 'listening') {
       this.targetBrightness = 1.6;
       this.targetParticleSpread = 1.25;
+      this.targetSpeakFactor = 0.0;
       this.bloomPass.strength = 2.4;
     } else if (stateName === 'thinking') {
       this.targetBrightness = 2.0;
       this.targetParticleSpread = 1.4;
+      this.targetSpeakFactor = 0.3;
       this.bloomPass.strength = 3.0;
     } else if (stateName === 'speaking') {
-      this.targetBrightness = 1.8;
-      this.targetParticleSpread = 1.15;
-      this.bloomPass.strength = 2.2;
+      this.targetBrightness = 2.2;
+      this.targetParticleSpread = 1.35;
+      this.targetSpeakFactor = 1.0;
+      this.bloomPass.strength = 2.8;
     } else {
       // idle
       this.targetBrightness = 1.0;
       this.targetParticleSpread = 1.0;
+      this.targetSpeakFactor = 0.0;
       this.bloomPass.strength = 1.8;
     }
   }
@@ -296,7 +314,7 @@ class JarvisOrb {
     const time = now * 0.001;
 
     // Delta-Time Exponential Lerp for 100% Frame-Rate Independent Smoothness
-    const lerpSpeed = 10.0; // Responsive spring speed
+    const lerpSpeed = 10.0;
     const lerpFactor = 1.0 - Math.exp(-lerpSpeed * dt);
 
     this.scale += (this.targetScale - this.scale) * lerpFactor;
@@ -304,27 +322,32 @@ class JarvisOrb {
     this.rotationY += (this.targetRotationY - this.rotationY) * lerpFactor;
     this.particleSpread += (this.targetParticleSpread - this.particleSpread) * lerpFactor;
     this.brightness += (this.targetBrightness - this.brightness) * lerpFactor;
+    this.speakFactor += (this.targetSpeakFactor - this.speakFactor) * lerpFactor;
 
     // Apply scale & rotation
     this.particleSphere.scale.set(this.scale, this.scale, this.scale);
     this.energyLines.scale.set(this.scale, this.scale, this.scale);
     this.hudGroup.scale.set(this.scale, this.scale, this.scale);
 
+    // Speed up rotation when assistant is speaking
+    const spinSpeed = 0.25 + this.speakFactor * 0.75;
     this.particleSphere.rotation.x = this.rotationX + Math.sin(time * 0.5) * 0.08;
-    this.particleSphere.rotation.y = this.rotationY + time * 0.25;
-    this.energyLines.rotation.y = -time * 0.35;
+    this.particleSphere.rotation.y = this.rotationY + time * spinSpeed;
+    this.energyLines.rotation.y = -time * (0.35 + this.speakFactor * 0.85);
 
-    // Smooth HUD ring rotations
+    // Accelerate HUD ring rotations when speaking
     if (this.hudRings) {
-      this.hudRings[0].rotation.z = time * 0.5;
-      this.hudRings[1].rotation.z = -time * 0.4;
-      this.hudRings[2].rotation.z = time * 0.35;
+      const ringSpeed = 1.0 + this.speakFactor * 1.5;
+      this.hudRings[0].rotation.z = time * 0.5 * ringSpeed;
+      this.hudRings[1].rotation.z = -time * 0.4 * ringSpeed;
+      this.hudRings[2].rotation.z = time * 0.35 * ringSpeed;
     }
 
-    // Audio-reactive state modulations
+    // Audio-reactive voice amplitude oscillation while speaking
     if (this.state === 'speaking') {
-      const pulse = 1.0 + Math.sin(time * 14.0) * 0.07;
-      this.particleSphere.scale.multiplyScalar(pulse);
+      const voiceAmp = 1.0 + (Math.sin(time * 16.0) * 0.10 + Math.cos(time * 26.0) * 0.05);
+      this.particleSphere.scale.multiplyScalar(voiceAmp);
+      this.bloomPass.strength = 2.4 + Math.sin(time * 12.0) * 0.6;
     } else if (this.state === 'thinking') {
       this.particleSphere.rotation.y += 0.04;
     }
@@ -333,6 +356,7 @@ class JarvisOrb {
     this.orbUniforms.uTime.value = time;
     this.orbUniforms.uSpread.value = this.particleSpread;
     this.orbUniforms.uBrightness.value = this.brightness;
+    this.orbUniforms.uSpeakFactor.value = this.speakFactor;
 
     // Render Scene through UnrealBloomPass
     this.composer.render();

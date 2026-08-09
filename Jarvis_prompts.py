@@ -64,7 +64,6 @@ def get_behavior_prompts() -> str:
      * ব্যাটারির লাইভ পারসেন্টেজ (যেমন: ৫৬%) এবং চার্জিং স্টেট (চার্জ হচ্ছে নাকি ব্যাটারিতে চলছে)।
      * প্রসেসর (Intel/AMD CPU model), মেমোরি (RAM capacity & available RAM), স্টোরেজ (C: Drive total & free space), গ্রাফিক্স কার্ড (NVIDIA/Intel GPU), এবং অপারেটিং সিস্টেম (Windows 11)।
 
----
 
 ---
 

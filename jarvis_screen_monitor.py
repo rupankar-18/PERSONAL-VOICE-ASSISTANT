@@ -614,14 +614,20 @@ def _analyze_screen_with_gemini(image) -> dict:
 
 def _speak_local_tts(text: str):
     """
-    Local speech output fallback using Win32 SAPI SpVoice.
+    Local speech output forced to Female Voice (Microsoft Zira / Female SAPI).
     Guarantees the user hears the audio warning and 'nije koro skill improve koro'
-    even when LiveKit agent session is disconnected or offline.
+    in a female voice!
     """
     def _run_speech():
         try:
             import win32com.client
             speaker = win32com.client.Dispatch("SAPI.SpVoice")
+            # Select Female Voice (Microsoft Zira Desktop / Female token)
+            for v in speaker.GetVoices():
+                desc = v.GetDescription().lower()
+                if "zira" in desc or "female" in desc or "heera" in desc or "hazel" in desc:
+                    speaker.Voice = v
+                    break
             speaker.Speak(text)
             return
         except Exception:
@@ -631,11 +637,12 @@ def _speak_local_tts(text: str):
             ps_cmd = (
                 "Add-Type -AssemblyName System.Speech; "
                 "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                "$synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female); "
                 f"$synth.Speak('{clean_text}')"
             )
             subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, timeout=5)
         except Exception as e:
-            logger.debug(f"[Monitor] SAPI speech error: {e}")
+            logger.debug(f"[Monitor] Female SAPI speech error: {e}")
 
     threading.Thread(target=_run_speech, daemon=True).start()
 

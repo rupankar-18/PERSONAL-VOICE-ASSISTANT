@@ -640,19 +640,10 @@ def _speak_local_tts(text: str):
 
 
 async def _fire_voice_alert(message: str):
-    """Send a voice alert through Neha's session AND local SAPI TTS fallback."""
-    # Always trigger local SAPI TTS to guarantee audio is spoken out loud immediately
+    """Send a voice alert through local SAPI TTS fallback without breaking Gemini Realtime WebSocket."""
+    # Always trigger local SAPI TTS to guarantee instant audio without breaking Gemini Realtime socket
     _speak_local_tts(message)
-
-    global _session_ref
-    if _session_ref is None:
-        print("[MONITOR WARNING] LiveKit session_ref is None (spoken via local SAPI TTS).")
-        return
-    try:
-        print(f"[MONITOR VOICE ALERT] Firing voice reply to Neha: {message[:80]}...")
-        await _session_ref.generate_reply(user_input=message)
-    except Exception as e:
-        print(f"[MONITOR ERROR] Voice alert failed: {e}")
+    print(f"[MONITOR VOICE ALERT] Spoken via local SAPI TTS: {message[:80]}...")
 
 
 # ---------------------------------------------------------------------------
@@ -1040,11 +1031,6 @@ def trigger_user_argument_enforcement(user_text: str = ""):
     print("🚨 "*25 + "\n")
 
     _speak_local_tts(msg)
-    if _session_ref and _main_event_loop:
-        try:
-            asyncio.run_coroutine_threadsafe(_session_ref.generate_reply(user_input=msg), _main_event_loop)
-        except Exception:
-            pass
 
 
 def is_user_arguing_after_warning(user_text: str) -> bool:

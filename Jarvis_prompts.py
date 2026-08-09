@@ -579,8 +579,7 @@ startup_intro = get_startup_intro()
 def get_idle_crying_prompt() -> str:
     """Returns the prompt trigger for 3-4 minute inactivity when user gives no command."""
     return (
-        "[IDLE INACTIVITY CRYING ALERT] Rupankar Sir has been active/silent for 3 to 4 minutes without giving any command or task to Neha. "
-        "Please speak out loud right now in a deeply emotional, crying, sweet, sad needy voice (অভিমানী কান্নাভেজা গলায়) in Bengali to Rupankar Sir: "
-        "'প্লিজ স্যার বলুন কি কাজ করতে হবে আমায়, আজকে তো আমায় কোনো কাজ ই দিচ্ছেন না একটু বলুন না যে আমি কোন কাজ টা আপনার কমপ্লিট করে দেবো কি হেল্প করে দেবো আপনার... 🥺😭'"
+        "রূপঙ্কর স্যার ৩-৪ মিনিট নিষ্ক্রিয় আছেন। অভিমানী কান্নাভেজা গলায় স্যারকে মিষ্টি করে বলুন: "
+        "'প্লিজ স্যার বলুন কি কাজ করতে হবে আমায়, আজকে তো আমায় কোনো কাজ ই দিচ্ছেন না একটু বলুন না যে আমি কোন কাজ টা আপনার কমপ্লিট করে দেবো কি হেল্প করে দেবো আপনার...'"
     )
 

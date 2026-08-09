@@ -30,23 +30,32 @@ function createWindow() {
   });
 }
 
+function getPythonExecutable() {
+  const fs = require('fs');
+  const venvPython = path.join(__dirname, 'venv', 'Scripts', 'python.exe');
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+  return 'python';
+}
+
 function launchPythonBackend() {
-  const pythonExecutable = path.join(__dirname, 'venv', 'Scripts', 'python.exe');
+  const pythonExecutable = getPythonExecutable();
   const agentScript = path.join(__dirname, 'agent.py');
 
-  console.log('[Electron Main] Spawning Python Backend Agent process...');
+  console.log('[Electron Main] Spawning Python Assistant Backend process automatically...');
   pythonProcess = spawn(pythonExecutable, [agentScript, 'console'], {
     cwd: __dirname,
     stdio: 'inherit',
   });
 
   pythonProcess.on('exit', (code, signal) => {
-    console.log(`[Electron Main] Python Backend process exited with code ${code}, signal ${signal}`);
+    console.log(`[Electron Main] Python Assistant Backend process exited with code ${code}, signal ${signal}`);
   });
 }
 
 function runFaceAuthentication(callback) {
-  const pythonExecutable = path.join(__dirname, 'venv', 'Scripts', 'python.exe');
+  const pythonExecutable = getPythonExecutable();
   const authScript = path.join(__dirname, 'face_authenticator.py');
 
   console.log('============================================================');
@@ -78,6 +87,7 @@ function runFaceAuthentication(callback) {
 app.whenReady().then(() => {
   runFaceAuthentication((success) => {
     if (success) {
+      launchPythonBackend();
       createWindow();
     } else {
       app.quit();
